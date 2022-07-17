@@ -223,20 +223,17 @@ RefreshRate RefreshRateConfigs::getBestRefreshRate(const std::vector<LayerRequir
                                                    GlobalSignals* outSignalsConsidered) const {
     std::lock_guard lock(mLock);
 
-    bool expired = false;
-
-    if (auto cached = getCachedBestRefreshRate(layers, globalSignals, outSignalsConsidered, &expired)) {
+    if (auto cached = getCachedBestRefreshRate(layers, globalSignals, outSignalsConsidered)) {
         return *cached;
     }
 
     GlobalSignals signalsConsidered;
-    RefreshRate result = getBestRefreshRateLocked(layers, globalSignals, &signalsConsidered, expired);
+    RefreshRate result = getBestRefreshRateLocked(layers, globalSignals, &signalsConsidered);
     lastBestRefreshRateInvocation.emplace(
             GetBestRefreshRateInvocation{.layerRequirements = layers,
                                          .globalSignals = globalSignals,
                                          .outSignalsConsidered = signalsConsidered,
-                                         .resultingBestRefreshRate = result,
-                                         .lastTimestamp = systemTime(SYSTEM_TIME_MONOTONIC)});
+                                         .resultingBestRefreshRate = result});
     if (outSignalsConsidered) {
         *outSignalsConsidered = signalsConsidered;
     }
@@ -245,16 +242,10 @@ RefreshRate RefreshRateConfigs::getBestRefreshRate(const std::vector<LayerRequir
 
 std::optional<RefreshRate> RefreshRateConfigs::getCachedBestRefreshRate(
         const std::vector<LayerRequirement>& layers, const GlobalSignals& globalSignals,
-        GlobalSignals* outSignalsConsidered, bool *expired) const {
+        GlobalSignals* outSignalsConsidered) const {
     const bool sameAsLastCall = lastBestRefreshRateInvocation &&
             lastBestRefreshRateInvocation->layerRequirements == layers &&
             lastBestRefreshRateInvocation->globalSignals == globalSignals;
-    const auto curTime = systemTime(SYSTEM_TIME_MONOTONIC);
-
-    if ((curTime - lastBestRefreshRateInvocation->lastTimestamp) >= EXPIRE_TIMEOUT) {
-        *expired = true;
-        return {};
-    }
 
     if (sameAsLastCall) {
         if (outSignalsConsidered) {
@@ -268,7 +259,7 @@ std::optional<RefreshRate> RefreshRateConfigs::getCachedBestRefreshRate(
 
 RefreshRate RefreshRateConfigs::getBestRefreshRateLocked(
         const std::vector<LayerRequirement>& layers, const GlobalSignals& globalSignals,
-        GlobalSignals* outSignalsConsidered, const bool expired) const {
+        GlobalSignals* outSignalsConsidered) const {
     ATRACE_CALL();
     ALOGV("getBestRefreshRate %zu layers", layers.size());
     static bool localIsIdle;
@@ -348,8 +339,7 @@ RefreshRate RefreshRateConfigs::getBestRefreshRateLocked(
     }
 
     if (layers.empty() || noVoteLayers == layers.size()) {
-        ALOGV("No layers - choose %s", getCurrentRefreshRateByPolicyLocked().getName().c_str());
-        return getCurrentRefreshRateByPolicyLocked();
+        return getMaxRefreshRateByPolicyLocked();
     }
 
     // Only if all layers want Min we should return Min
@@ -427,20 +417,8 @@ RefreshRate RefreshRateConfigs::getBestRefreshRateLocked(
                 continue;
             }
 
-            float layerScore;
-
-            if (layer.vote == LayerVoteType::Heuristic && expired &&
-                scores[i].refreshRate->getFps().greaterThanWithMargin(Fps(60.0f))) {
-                // Time for heuristic layer to keep consuming high refresh rate has been expired
-                ALOGV("%s expired to keep using %s", formatLayerInfo(layer, weight).c_str(),
-                      scores[i].refreshRate->getName().c_str());
-                layerScore = 0;
-                localIsIdle = true;
-            } else {
-                layerScore =
+            const auto layerScore =
                     calculateLayerScoreLocked(layer, *scores[i].refreshRate, isSeamlessSwitch);
-            }
-
             ALOGV("%s gives %s score of %.2f", formatLayerInfo(layer, weight).c_str(),
                   scores[i].refreshRate->getName().c_str(), layerScore);
             scores[i].score += weight * layerScore;
