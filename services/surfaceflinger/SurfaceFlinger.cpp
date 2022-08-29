@@ -3253,28 +3253,30 @@ void SurfaceFlinger::postComposition() {
         }
     }
 
-    std::vector<std::string> layerName;
-    std::vector<int32_t> layerSequence;
-    bool layerExtEnabled = (mSplitLayerExt && mLayerExt);
-    bool visibleLayersInfo = false;
+    if (display) {
+        std::vector<std::string> layerName;
+        std::vector<int32_t> layerSequence;
+        bool layerExtEnabled = (mSplitLayerExt && mLayerExt);
+        bool visibleLayersInfo = false;
 
-    const uint32_t layerStackId = display->getLayerStack();
-    SmomoIntf *smoMo = nullptr;
-    for (auto &instance: mSmomoInstances) {
-        if (instance.layerStackId == layerStackId) {
-            smoMo = instance.smoMo;
-            break;
+        const uint32_t layerStackId = display->getLayerStack();
+        SmomoIntf *smoMo = nullptr;
+        for (auto &instance: mSmomoInstances) {
+            if (instance.layerStackId == layerStackId) {
+                smoMo = instance.smoMo;
+                break;
+            }
         }
-    }
 
-    if (smoMo || layerExtEnabled) {
-        const auto compositionDisplay = display->getCompositionDisplay();
-        compositionDisplay->getVisibleLayerInfo(&layerName, &layerSequence);
-        visibleLayersInfo = (layerName.size() != 0);
-    }
+        if (smoMo || layerExtEnabled) {
+            const auto compositionDisplay = display->getCompositionDisplay();
+            compositionDisplay->getVisibleLayerInfo(&layerName, &layerSequence);
+            visibleLayersInfo = (layerName.size() != 0);
+        }
 
-    if (layerExtEnabled && visibleLayersInfo) {
-        mLayerExt->UpdateLayerState(layerName, mNumLayers);
+        if (layerExtEnabled && visibleLayersInfo) {
+            mLayerExt->UpdateLayerState(layerName, mNumLayers);
+        }
     }
 
 
